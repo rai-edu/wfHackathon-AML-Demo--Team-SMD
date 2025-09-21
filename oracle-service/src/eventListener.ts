@@ -75,10 +75,14 @@ export async function listenForSendEventsRealtime() {
 
                                 // Fetch last 20 transactions for the receiver
                                 const receiverTxs = await getReceiverTxs(client, attrs["to"], 20);
-                                console.log(
-                                    `Last 20 transactions for receiver (${attrs["to"]}):`,
-                                    JSON.stringify(receiverTxs, null, 2)
-                                );
+                                // console.log(
+                                //     `Last 20 transactions for receiver (${attrs["to"]}):`,
+                                //     JSON.stringify(receiverTxs, null, 2)
+                                // );
+                                // write in a json file as well all receiverTxs with timestamp
+                                const fs = require('fs');
+                                fs.writeFileSync(`receiver_txs_${attrs["to"]}_${Date.now()}.json`, JSON.stringify(receiverTxs, null, 2));
+                                console.log(`Written receiver transactions to receiver_txs_${attrs["to"]}_${Date.now()}.json`);
                             }
                         }
                     }
