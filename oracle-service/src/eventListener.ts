@@ -1,11 +1,13 @@
 import { CosmWasmClient } from "@cosmjs/cosmwasm-stargate";
 import dotenv from "dotenv";
 import fs from "fs";
+import axios from "axios";
 
 dotenv.config();
 
 const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS!;
 const RPC_URL = process.env.RPC_URL!;
+const AML_SERVICE_URL = process.env.AML_SERVICE_URL || "http://localhost:5050/aml-check";
 
 /**
  * Fetch the last N unique transactions for a given address.
@@ -150,6 +152,18 @@ export async function listenForSendEventsRealtime() {
 
                                 const rawTxs = await getReceiverTxs(client, attrs["to"], 20);
                                 const formatted = formatReceiverTxs(rawTxs, attrs["to"]);
+
+                                // Call AML service
+                                try {
+                                    const response = await axios.post(AML_SERVICE_URL, formatted);
+                                    console.log("AML Service Response:", response.data);
+                                } catch (err) {
+                                    if (axios.isAxiosError(err)) {
+                                        console.error("Error calling AML service:", err.response?.data || err.message);
+                                    } else {
+                                        console.error("Error calling AML service:", (err as Error).message);
+                                    }
+                                }
 
                                 const fileName = `receiver_txs_${attrs["to"]}_${Date.now()}.json`;
                                 fs.writeFileSync(fileName, JSON.stringify(formatted, null, 2));
