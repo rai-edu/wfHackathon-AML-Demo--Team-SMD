@@ -10,11 +10,7 @@ const RPC_URL = process.env.RPC_URL!;
 /**
  * Fetch the last N unique transactions for a given address.
  */
-async function getReceiverTxs(
-    client: CosmWasmClient,
-    address: string,
-    limit: number = 10
-) {
+async function getReceiverTxs(client: CosmWasmClient, address: string, limit: number = 10) {
     const queries = [
         `transfer.recipient='${address}'`,
         `coin_received.receiver='${address}'`,
@@ -27,12 +23,8 @@ async function getReceiverTxs(
     for (const q of queries) {
         try {
             const res = await client.searchTx(q);
-            if (Array.isArray(res) && res.length > 0) {
-                allTxs.push(...res);
-            }
-        } catch {
-            // ignore unsupported queries
-        }
+            if (Array.isArray(res) && res.length > 0) allTxs.push(...res);
+        } catch { }
     }
 
     const txMap = new Map<string, any>();
@@ -44,18 +36,27 @@ async function getReceiverTxs(
         .sort((a: any, b: any) => Number(b.height ?? 0) - Number(a.height ?? 0))
         .slice(0, limit);
 
-    return txs.map((tx: any) => ({
-        hash: tx.hash,
-        height: tx.height,
-        events: Array.isArray(tx.events)
-            ? tx.events
-                .filter((e: any) => e.type === "wasm-send")
-                .map((e: any) => ({
-                    type: e.type,
-                    attributes: Array.isArray(e.attributes) ? e.attributes : [],
-                }))
-            : [],
-    }));
+    const detailedTxs = [];
+    for (const tx of txs) {
+        const block = await client.getBlock(tx.height);
+        const timestamp = block?.header?.time ?? null;
+
+        detailedTxs.push({
+            hash: tx.hash,
+            height: tx.height,
+            timestamp,
+            events: Array.isArray(tx.events)
+                ? tx.events
+                    .filter((e: any) => e.type === "wasm-send")
+                    .map((e: any) => ({
+                        type: e.type,
+                        attributes: Array.isArray(e.attributes) ? e.attributes : [],
+                    }))
+                : [],
+        });
+    }
+
+    return detailedTxs;
 }
 
 /**
@@ -68,7 +69,7 @@ function parseAmount(raw: string | null | undefined): number | null {
 }
 
 /**
- * Format transactions into the required structure.
+ * Format transactions to include only the fields needed for AML
  */
 function formatReceiverTxs(rawTxs: any[], recipient: string) {
     const transactions: Array<Record<string, any>> = [];
@@ -77,9 +78,7 @@ function formatReceiverTxs(rawTxs: any[], recipient: string) {
         for (const event of tx.events || []) {
             const attrs: Record<string, string> = {};
             for (const a of event.attributes) {
-                if (a && typeof a.key === "string") {
-                    attrs[a.key] = a.value;
-                }
+                if (a && typeof a.key === "string") attrs[a.key] = a.value;
             }
 
             const from = attrs["from"];
@@ -90,6 +89,9 @@ function formatReceiverTxs(rawTxs: any[], recipient: string) {
             if (to === recipient) {
                 transactions.push({
                     hash: tx.hash,
+                    height: tx.height,
+                    timestamp: tx.timestamp,
+                    contractAddress: attrs["_contract_address"] ?? null,
                     receivedFrom: from ?? null,
                     amount,
                     transactionType: "received",
@@ -97,7 +99,10 @@ function formatReceiverTxs(rawTxs: any[], recipient: string) {
             } else if (from === recipient) {
                 transactions.push({
                     hash: tx.hash,
-                    sentTo: to ?? null,
+                    height: tx.height,
+                    timestamp: tx.timestamp,
+                    contractAddress: attrs["_contract_address"] ?? null,
+                    receivedFrom: to ?? null, // optional: could rename to sentTo if needed
                     amount,
                     transactionType: "sent",
                 });
@@ -112,7 +117,7 @@ function formatReceiverTxs(rawTxs: any[], recipient: string) {
 }
 
 /**
- * Listen for wasm-send events in real-time and log relevant transactions.
+ * Listen for wasm-send events in real-time and save simplified AML data
  */
 export async function listenForSendEventsRealtime() {
     const client = await CosmWasmClient.connect(RPC_URL);
@@ -131,9 +136,7 @@ export async function listenForSendEventsRealtime() {
                     for (const event of tx.events || []) {
                         if (event.type === "wasm-send") {
                             const attrs: Record<string, string> = {};
-                            for (const a of event.attributes || []) {
-                                attrs[a.key] = a.value;
-                            }
+                            for (const a of event.attributes || []) attrs[a.key] = a.value;
 
                             if (
                                 attrs["_contract_address"] === CONTRACT_ADDRESS &&
@@ -150,7 +153,7 @@ export async function listenForSendEventsRealtime() {
 
                                 const fileName = `receiver_txs_${attrs["to"]}_${Date.now()}.json`;
                                 fs.writeFileSync(fileName, JSON.stringify(formatted, null, 2));
-                                console.log(`Written receiver transactions to ${fileName}`);
+                                console.log(`Written simplified AML data to ${fileName}`);
                             }
                         }
                     }
