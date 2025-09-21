@@ -1,5 +1,6 @@
 import { CosmWasmClient } from "@cosmjs/cosmwasm-stargate";
 import dotenv from "dotenv";
+import fs from "fs";
 
 dotenv.config();
 
@@ -14,30 +15,100 @@ async function getReceiverTxs(
     address: string,
     limit: number = 10
 ) {
-    // Query for transfer.recipient and coin_received.receiver
-    const transferTxs = await client.searchTx(`transfer.recipient='${address}'`);
-    const coinReceivedTxs = await client.searchTx(`coin_received.receiver='${address}'`);
+    const queries = [
+        `transfer.recipient='${address}'`,
+        `coin_received.receiver='${address}'`,
+        `transfer.sender='${address}'`,
+        `coin_spent.spender='${address}'`,
+        `message.sender='${address}'`,
+    ];
 
-    // Merge and deduplicate transactions by hash
-    const txMap: Record<string, any> = {};
-    for (const tx of [...transferTxs, ...coinReceivedTxs]) {
-        txMap[tx.hash] = tx;
+    const allTxs: any[] = [];
+    for (const q of queries) {
+        try {
+            const res = await client.searchTx(q);
+            if (Array.isArray(res) && res.length > 0) {
+                allTxs.push(...res);
+            }
+        } catch {
+            // ignore unsupported queries
+        }
     }
 
-    // Sort by block height (descending) and take the latest `limit` transactions
-    const txs = Object.values(txMap)
-        .sort((a: any, b: any) => b.height - a.height)
+    const txMap = new Map<string, any>();
+    for (const tx of allTxs) {
+        if (tx && tx.hash) txMap.set(tx.hash, tx);
+    }
+
+    const txs = Array.from(txMap.values())
+        .sort((a: any, b: any) => Number(b.height ?? 0) - Number(a.height ?? 0))
         .slice(0, limit);
 
-    return txs.map(tx => ({
+    return txs.map((tx: any) => ({
         hash: tx.hash,
         height: tx.height,
-        // events is an array of event objects just need "type" : "wasm-send" for each
-        events: tx.events.filter((event: any) => event.type === "wasm-send").map((event: any) => ({
-            type: event.type,
-            attributes: event.attributes,
-        })),
+        events: Array.isArray(tx.events)
+            ? tx.events
+                .filter((e: any) => e.type === "wasm-send")
+                .map((e: any) => ({
+                    type: e.type,
+                    attributes: Array.isArray(e.attributes) ? e.attributes : [],
+                }))
+            : [],
     }));
+}
+
+/**
+ * Extract numeric value from amount string
+ */
+function parseAmount(raw: string | null | undefined): number | null {
+    if (!raw) return null;
+    const match = raw.match(/\d+/);
+    return match ? Number(match[0]) : null;
+}
+
+/**
+ * Format transactions into the required structure.
+ */
+function formatReceiverTxs(rawTxs: any[], recipient: string) {
+    const transactions: Array<Record<string, any>> = [];
+
+    for (const tx of rawTxs) {
+        for (const event of tx.events || []) {
+            const attrs: Record<string, string> = {};
+            for (const a of event.attributes) {
+                if (a && typeof a.key === "string") {
+                    attrs[a.key] = a.value;
+                }
+            }
+
+            const from = attrs["from"];
+            const to = attrs["to"];
+            const amountRaw = attrs["amount"] ?? null;
+            const amount = parseAmount(amountRaw);
+
+            if (to === recipient) {
+                transactions.push({
+                    hash: tx.hash,
+                    receivedFrom: from ?? null,
+                    amount,
+                    transactionType: "received",
+                });
+            } else if (from === recipient) {
+                transactions.push({
+                    hash: tx.hash,
+                    sentTo: to ?? null,
+                    amount,
+                    transactionType: "sent",
+                });
+            }
+        }
+    }
+
+    return {
+        recipientId: recipient,
+        transactions,
+    };
 }
 
 /**
@@ -52,44 +123,40 @@ export async function listenForSendEventsRealtime() {
         const currentHeight = await client.getHeight();
 
         if (currentHeight > lastHeight) {
-            // Iterate through new blocks
             for (let h = lastHeight + 1; h <= currentHeight; h++) {
                 const query = `tx.height=${h}`;
                 const txs = await client.searchTx(query);
 
                 for (const tx of txs) {
-                    for (const event of tx.events) {
+                    for (const event of tx.events || []) {
                         if (event.type === "wasm-send") {
                             const attrs: Record<string, string> = {};
-                            for (const a of event.attributes) {
+                            for (const a of event.attributes || []) {
                                 attrs[a.key] = a.value;
                             }
 
-                            // Filter events for our contract and "send" action
-                            if (attrs["_contract_address"] === CONTRACT_ADDRESS && attrs["action"] === "send") {
+                            if (
+                                attrs["_contract_address"] === CONTRACT_ADDRESS &&
+                                attrs["action"] === "send"
+                            ) {
                                 console.log("Send event detected:", {
                                     from: attrs["from"],
                                     to: attrs["to"],
-                                    amount: attrs["amount"],
+                                    amount: parseAmount(attrs["amount"]),
                                 });
 
-                                // Fetch last 20 transactions for the receiver
-                                const receiverTxs = await getReceiverTxs(client, attrs["to"], 20);
-                                // console.log(
-                                //     `Last 20 transactions for receiver (${attrs["to"]}):`,
-                                //     JSON.stringify(receiverTxs, null, 2)
-                                // );
-                                // write in a json file as well all receiverTxs with timestamp
-                                const fs = require('fs');
-                                fs.writeFileSync(`receiver_txs_${attrs["to"]}_${Date.now()}.json`, JSON.stringify(receiverTxs, null, 2));
-                                console.log(`Written receiver transactions to receiver_txs_${attrs["to"]}_${Date.now()}.json`);
+                                const rawTxs = await getReceiverTxs(client, attrs["to"], 20);
+                                const formatted = formatReceiverTxs(rawTxs, attrs["to"]);
+
+                                const fileName = `receiver_txs_${attrs["to"]}_${Date.now()}.json`;
+                                fs.writeFileSync(fileName, JSON.stringify(formatted, null, 2));
+                                console.log(`Written receiver transactions to ${fileName}`);
                             }
                         }
                     }
                 }
             }
-
             lastHeight = currentHeight;
         }
-    }, 5000); // Poll every 5 seconds
+    }, 5000);
 }
