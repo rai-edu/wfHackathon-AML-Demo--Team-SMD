@@ -136,7 +136,8 @@ Our solution empowers **smart contracts** to:
 
 ## 🎥 Demo Video  
 👉 [Watch the Demo](https://www.youtube.com/watch?v=DsJ8I6n6XgE)  
-
+<!-- Link video from video folder  -->
+[Watch Demo](video/DEMO[Team-SMD].mp4)
 ---
 
 ## 🚀 Future Enhancements  
