@@ -139,7 +139,7 @@ Our solution empowers **smart contracts** to:
 <!-- Link video from video folder  -->
 <video src="video/DEMO[Team-SMD].mp4" controls width="600"></video>
 
-[Download - Demo File](video/DEMO[Team-SMD].mp4)
+[Download - Demo File](artifact/demo/DEMO[Team-SMD].mp4)
 ---
 
 ## 🚀 Future Enhancements  
