@@ -1,0 +1,23 @@
+{
+  "recipientId": "wasm1rte8usn5hnjt2r3p3l0tlpgdl46p0kzn52tc6c",
+  "transactions": [
+    {
+      "hash": "96F8F1C3F6DC5F784D196F8B8A72F22B25387F2D0BF97C21380DC85BDDF22D76",
+      "height": 7506,
+      "timestamp": "2025-09-21T17:03:28.453310299Z",
+      "contractAddress": "wasm14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s0phg4d",
+      "receivedFrom": "wasm1ga4d4tsxrk6na6ehttwvdfmn2ejy4gwfxpt2m7",
+      "amount": 100,
+      "transactionType": "received"
+    },
+    {
+      "hash": "1B60462CCA87EEE4DD127F32794C49462056AA715F2180745AE8E258458F0B0E",
+      "height": 7504,
+      "timestamp": "2025-09-21T17:03:19.280389605Z",
+      "contractAddress": "wasm14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s0phg4d",
+      "receivedFrom": "wasm1ga4d4tsxrk6na6ehttwvdfmn2ejy4gwfxpt2m7",
+      "amount": 100,
+      "transactionType": "received"
+    }
+  ]
+}
